@@ -22,7 +22,7 @@ verbatim. Files are append-only: never edited, reordered, or deleted.
 import random
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).parent
@@ -226,15 +226,33 @@ def write_post(body: str) -> str:
     return path.name
 
 
+def posted_today(now: datetime) -> bool:
+    return any(POSTS_DIR.glob(now.strftime("%Y-%m-%d") + "T*.txt"))
+
+
 def main() -> None:
     POSTS_DIR.mkdir(exist_ok=True)
     force = "--force" in sys.argv
 
     if not force:
-        if R.random() > BASE_CHANCE * hazard():
+        now = datetime.now(timezone.utc)
+        p = BASE_CHANCE * hazard()
+        if not posted_today(now) and now.hour >= 10:
+            # The daily floor: it speaks at least once a day, but never at a
+            # predictable hour. A postless day's odds climb quietly through
+            # the afternoon, reaching certainty by 22:00 UTC.
+            p = max(p, min(1.0, ((now.hour - 9) / 13) ** 2))
+        if R.random() > p:
             print("nothing")
             return
-        time.sleep(R.uniform(0, 3500))  # anywhere in the hour, no grid
+        cap = 3500.0  # anywhere in the hour, no grid
+        if not posted_today(now):
+            midnight = (now + timedelta(days=1)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            # a floor post must land inside the day it is rescuing
+            cap = min(cap, max(30.0, (midnight - now).total_seconds() - 90))
+        time.sleep(R.uniform(0, cap))
 
     deformed = False
     for i in range(burst_size()):
