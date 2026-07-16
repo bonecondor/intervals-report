@@ -30,7 +30,8 @@ POSTS_DIR = ROOT / "posts"
 
 R = random.SystemRandom()
 
-BASE_CHANCE = 0.045   # per hourly run — roughly one posting event a day, drifting
+BASE_CHANCE = 0.03    # per half-hourly run — roughly one posting event a day,
+                      # drifting; GitHub skips many runs, which only adds noise
 DEFORM_CHANCE = 0.045 # per post — the overwhelming majority must be ordinary
 DEFORM_AGAIN = 0.30   # a deformity makes the next post in the same burst riskier
 
@@ -240,8 +241,9 @@ def main() -> None:
         if not posted_today(now) and now.hour >= 10:
             # The daily floor: it speaks at least once a day, but never at a
             # predictable hour. A postless day's odds climb quietly through
-            # the afternoon, reaching certainty by 22:00 UTC.
-            p = max(p, min(1.0, ((now.hour - 9) / 13) ** 2))
+            # the afternoon, reaching certainty by 20:00 UTC — early enough
+            # that even heavy run-skipping leaves many chances before midnight.
+            p = max(p, min(1.0, ((now.hour - 9) / 11) ** 2))
         if R.random() > p:
             print("nothing")
             return

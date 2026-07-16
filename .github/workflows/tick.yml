@@ -2,7 +2,9 @@ name: tick
 
 on:
   schedule:
-    - cron: "43 * * * *"   # hourly; tick.py decides live whether anything happens
+    # every 30 min at odd minutes — GitHub drops many scheduled runs under
+    # load, so we oversample; tick.py's odds are tuned for this cadence
+    - cron: "13,43 * * * *"
   workflow_dispatch:
     inputs:
       force:
