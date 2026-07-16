@@ -13,15 +13,15 @@ main {
   margin: 0 auto;
 }
 
-.post { margin-bottom: 3rem; }
+.post { margin-bottom: 2rem; }
 
 .stamp {
-  margin: 0 0 0.5rem;
+  margin: 0 0 0.25rem;
   font-size: 0.8rem;
   color: #888;
 }
 
-pre {
+.numbers {
   margin: 0;
-  font: inherit;
+  word-spacing: 0.5em;
 }

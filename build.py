@@ -17,7 +17,7 @@ SITE_DIR = ROOT / "docs"  # GitHub Pages serves from /docs on the main branch
 STYLE_SRC = ROOT / "style.css"
 
 SITE_TITLE = ""  # unnamed, for now
-DOMAIN = ""      # no CNAME until there's a domain
+DOMAIN = "intervals.report"
 
 _NAME = re.compile(r"^(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})$")
 
@@ -35,11 +35,11 @@ def parse_post(path: Path) -> dict | None:
 
 def post_article(post: dict) -> str:
     stamp = post["moment"].strftime("%Y-%m-%d %H:%M")
-    numbers = "\n".join(post["numbers"])
+    numbers = " ".join(post["numbers"])
     return (
         '<article class="post">\n'
         f'<p class="stamp">{stamp}</p>\n'
-        f"<pre>{numbers}</pre>\n"
+        f'<p class="numbers">{numbers}</p>\n'
         "</article>"
     )
 
