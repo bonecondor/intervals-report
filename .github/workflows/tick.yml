@@ -1,0 +1,30 @@
+name: tick
+
+on:
+  schedule:
+    - cron: "7 * * * *"   # hourly; tick.py decides whether anything happens
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tick
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: tick
+        run: python3 tick.py
+      - name: build
+        run: python3 build.py
+      - name: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add posts docs
+          git diff --cached --quiet || git commit -m "$(date -u +%Y-%m-%dT%H:%M)"
+          git push
