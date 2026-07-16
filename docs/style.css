@@ -24,4 +24,6 @@ main {
 .numbers {
   margin: 0;
   word-spacing: 0.5em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

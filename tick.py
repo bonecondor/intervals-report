@@ -1,88 +1,248 @@
 #!/usr/bin/env python3
-"""tick — the site decides whether to post right now. No dependencies.
+"""tick — the site decides, live, whether to speak. No dependencies.
 
-Run by GitHub Actions on an hourly cron (and by hand, if you want):
+GitHub Actions runs this hourly. Most runs say nothing. When it does post,
+everything — that it happens, when in the hour, how many posts, their values,
+whether one comes out wrong — is drawn from the operating system's entropy
+pool at that moment (random.SystemRandom). There is no seed and no schedule;
+nothing can be precomputed, replayed, or decoded.
 
-    python3 tick.py            # post anything scheduled in the lookback window
-    python3 tick.py --force    # post right now, schedule or not
+The one governing law: DEFORM THE FORM, NEVER ENCODE MEANING. A deformity may
+mangle the shape of the numeric output in any way, but may never introduce
+anything from outside the stream. There is never anything hidden to solve.
 
-How it works:
-  - Each UTC day is hashed into a seed. The seed decides how many times the
-    site posts that day (possibly zero) and at which minutes.
-  - Each scheduled minute is hashed into its own seed, which decides how many
-    numbers appear and what they are.
-  - A post is a file in posts/ named by its scheduled moment, e.g.
-    posts/2026-07-15T03-12.txt — one number per line.
+The clock is sacred. A post is a file in posts/ named by the UTC second it
+was written — posts/2026-07-15T21-36-42.txt — and the body is the post,
+verbatim. Files are append-only: never edited, reordered, or deleted.
 
-Everything is deterministic from the clock, so runs are idempotent: a rerun
-(or a late cron) writes exactly the posts it missed and nothing twice.
+    python3 tick.py            # the normal coin flip (may sleep up to an hour)
+    python3 tick.py --force    # skip the flip and the big sleep; post one burst
 """
 
-import hashlib
 import random
 import sys
-from datetime import datetime, timedelta, timezone
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).parent
 POSTS_DIR = ROOT / "posts"
 
-# How far back a run looks for scheduled moments it may have missed. Covers
-# a full day plus slack, so even a long Actions outage self-heals.
-LOOKBACK = timedelta(hours=26)
+R = random.SystemRandom()
 
-# Posts per day: drawn once per day from this pool. Zero is a real option —
-# some days it says nothing.
-DAY_COUNTS = [0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 5, 6, 8, 11]
-
-# Numbers per post lean short; digit lengths lean small with a long tail.
-DIGIT_LENGTHS = [1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 5, 6]
+BASE_CHANCE = 0.045   # per hourly run — roughly one posting event a day, drifting
+DEFORM_CHANCE = 0.045 # per post — the overwhelming majority must be ordinary
+DEFORM_AGAIN = 0.30   # a deformity makes the next post in the same burst riskier
 
 
-def _rng(key: str) -> random.Random:
-    return random.Random(int(hashlib.sha256(key.encode()).hexdigest(), 16))
+def hazard() -> float:
+    """Recent speech excites; long silence deepens. Read from posts/ itself,
+    so the process feeds on its own public record — no hidden state."""
+    stamps = sorted(POSTS_DIR.glob("*.txt"))
+    if not stamps:
+        return 1.0
+    last = datetime.strptime(stamps[-1].stem, "%Y-%m-%dT%H-%M-%S").replace(
+        tzinfo=timezone.utc
+    )
+    gap = (datetime.now(timezone.utc) - last).total_seconds() / 3600
+    if gap < 2:
+        return 3.0
+    if gap < 8:
+        return 1.6
+    if gap < 36:
+        return 1.0
+    return 0.55
 
 
-def day_schedule(day) -> list[int]:
-    """Minutes-after-midnight (UTC) at which this day posts."""
-    rng = _rng(day.isoformat())
-    count = rng.choice(DAY_COUNTS)
-    return sorted(rng.sample(range(24 * 60), count))
+# ------------------------------ normal posts ------------------------------- #
+
+def value() -> str:
+    """One number, from a deliberately wide mixed range: mostly modest, a tail
+    of very large, an occasional decimal or negative."""
+    mag = R.randint(0, 6) if R.random() < 0.9 else R.randint(7, 12)
+    n = R.randrange(10 ** mag, 10 ** (mag + 1)) if mag else R.randrange(0, 10)
+    if R.random() < 0.07:
+        n = -n
+    if R.random() < 0.08:
+        frac = "".join(str(R.randrange(10)) for _ in range(R.randint(1, 4)))
+        return f"{n}.{frac}"
+    return str(n)
 
 
-def post_numbers(moment: datetime) -> list[int]:
-    rng = _rng(moment.strftime("%Y-%m-%dT%H-%M"))
-    count = max(1, min(24, 1 + int(rng.expovariate(1 / 4))))
-    return [rng.randrange(10 ** rng.choice(DIGIT_LENGTHS)) for _ in range(count)]
+def normal_body() -> str:
+    return " ".join(value() for _ in range(R.randint(1, 12)))
 
 
-def write_post(moment: datetime) -> bool:
-    path = POSTS_DIR / f"{moment.strftime('%Y-%m-%dT%H-%M')}.txt"
-    if path.exists():
-        return False
-    path.write_text("\n".join(str(n) for n in post_numbers(moment)) + "\n")
-    print(f"posted {path.name}")
-    return True
+# ------------------------------- deformities ------------------------------- #
+# Shape only. Every function mangles meaningless numeric output; none may
+# import anything from outside the stream.
+
+def _values(a: int, b: int) -> list[str]:
+    return [value() for _ in range(R.randint(a, b))]
+
+
+def d_empty() -> str:
+    return ""
+
+
+def d_zero() -> str:
+    return "0"
+
+
+def d_repeat() -> str:
+    prior = sorted(POSTS_DIR.glob("*.txt"))
+    if not prior:
+        return d_stammer()
+    return R.choice(prior).read_text().rstrip("\n")
+
+
+def d_stammer() -> str:
+    return " ".join([str(R.randrange(0, 100))] * R.randint(8, 70))
+
+
+def d_allsame() -> str:
+    return " ".join([str(R.randrange(0, 10 ** R.randint(2, 9)))] * R.randint(2, 5))
+
+
+def d_double() -> str:
+    vals = _values(3, 10)
+    i = R.randrange(len(vals))
+    vals.insert(i, vals[i])
+    return " ".join(vals)
+
+
+def d_sorted() -> str:
+    vals = sorted(R.randrange(0, 10 ** R.randint(1, 6)) for _ in range(R.randint(5, 12)))
+    if R.random() < 0.5:
+        vals.reverse()
+    return " ".join(map(str, vals))
+
+
+def d_marathon() -> str:
+    return " ".join(value() for _ in range(R.randint(60, 400)))
+
+
+def d_gaps() -> str:
+    return "".join(v + " " * R.randint(1, 7) for v in _values(3, 12)).rstrip()
+
+
+def d_lines() -> str:
+    vals = _values(4, 14)
+    cuts = sorted(R.sample(range(1, len(vals)), R.randint(1, 3)))
+    parts, prev = [], 0
+    for c in cuts + [len(vals)]:
+        parts.append(" ".join(vals[prev:c]))
+        prev = c
+    return "\n".join(parts)
+
+
+def d_glued() -> str:
+    return ",".join(_values(4, 12))
+
+
+def d_stray() -> str:
+    vals = _values(2, 10)
+    vals.insert(R.randrange(len(vals) + 1), R.choice("|~^;:*"))
+    return " ".join(vals)
+
+
+def d_cutoff() -> str:
+    return " ".join(_values(2, 9)) + R.choice([".", " -"])
+
+
+def d_hyperdecimal() -> str:
+    whole = R.randrange(0, 10 ** R.randint(1, 3))
+    frac = "".join(str(R.randrange(10)) for _ in range(R.randint(9, 17)))
+    vals = _values(1, 6)
+    vals[R.randrange(len(vals))] = f"{whole}.{frac}"
+    return " ".join(vals)
+
+
+def d_pointless() -> str:
+    return " ".join(
+        f"{R.randrange(0, 10 ** R.randint(1, 5))}.0" for _ in range(R.randint(3, 10))
+    )
+
+
+def d_zeropad() -> str:
+    w = R.randint(5, 9)
+    return " ".join(
+        str(R.randrange(0, 10 ** R.randint(0, 4))).zfill(w) for _ in range(R.randint(3, 10))
+    )
+
+
+def d_commas() -> str:
+    vals = _values(1, 7)
+    vals[R.randrange(len(vals))] = f"{R.randrange(10 ** 6, 10 ** 10):,}"
+    return " ".join(vals)
+
+
+def d_sci() -> str:
+    vals = _values(0, 6) + [
+        f"{R.randrange(1, 10)}.{R.randrange(10)}e+{R.randint(2, 19)}"
+        for _ in range(R.randint(1, 3))
+    ]
+    R.shuffle(vals)
+    return " ".join(vals)
+
+
+def d_rebase() -> str:
+    fmt = R.choice(["x", "b", "o"])
+    return " ".join(format(R.randrange(0, 10 ** 5), fmt) for _ in range(R.randint(2, 8)))
+
+
+def d_negative() -> str:
+    return " ".join(f"-{R.randrange(0, 10 ** R.randint(1, 6))}" for _ in range(R.randint(3, 10)))
+
+
+DEFORMS = [
+    d_empty, d_zero, d_repeat, d_stammer, d_allsame, d_double, d_sorted,
+    d_marathon, d_gaps, d_lines, d_glued, d_stray, d_cutoff, d_hyperdecimal,
+    d_pointless, d_zeropad, d_commas, d_sci, d_rebase, d_negative,
+]
+
+
+# --------------------------------- posting --------------------------------- #
+
+def burst_size() -> int:
+    x = R.random()
+    if x < 0.70:
+        return 1
+    if x < 0.86:
+        return 2
+    if x < 0.94:
+        return 3
+    return min(3 + int(R.expovariate(0.45)), 12)
+
+
+def write_post(body: str) -> str:
+    while True:
+        now = datetime.now(timezone.utc)
+        path = POSTS_DIR / f"{now.strftime('%Y-%m-%dT%H-%M-%S')}.txt"
+        if not path.exists():
+            break
+        time.sleep(1)
+    path.write_text(body + "\n" if body else "")
+    return path.name
 
 
 def main() -> None:
     POSTS_DIR.mkdir(exist_ok=True)
-    now = datetime.now(timezone.utc)
-    wrote = 0
+    force = "--force" in sys.argv
 
-    if "--force" in sys.argv:
-        wrote += write_post(now.replace(second=0, microsecond=0))
-    else:
-        day = (now - LOOKBACK).date()
-        while day <= now.date():
-            midnight = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
-            for minute in day_schedule(day):
-                moment = midnight + timedelta(minutes=minute)
-                if now - LOOKBACK <= moment <= now:
-                    wrote += write_post(moment)
-            day += timedelta(days=1)
+    if not force:
+        if R.random() > BASE_CHANCE * hazard():
+            print("nothing")
+            return
+        time.sleep(R.uniform(0, 3500))  # anywhere in the hour, no grid
 
-    print(f"{wrote} new post(s)" if wrote else "nothing to say right now")
+    deformed = False
+    for i in range(burst_size()):
+        if i:
+            time.sleep(R.uniform(2, 90))
+        deformed = R.random() < (DEFORM_AGAIN if deformed else DEFORM_CHANCE)
+        body = R.choice(DEFORMS)() if deformed else normal_body()
+        print(f"posted {write_post(body)}" + (" (deformed)" if deformed else ""))
 
 
 if __name__ == "__main__":

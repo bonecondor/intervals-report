@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """build — renders posts/ to a static site in docs/. No dependencies.
 
-Posts are plain text files of numbers, named by their moment:
-posts/2026-07-15T03-12.txt. tick.py writes them; this renders them.
+A post is a file named by the UTC second it was published
+(posts/2026-07-15T21-36-42.txt); its body is rendered verbatim. Posts are
+append-only and newest-first. The build never rewrites a timestamp.
 Run it with:  python3 build.py
 """
 
+import html
 import re
 import shutil
 from datetime import datetime
@@ -16,30 +18,26 @@ POSTS_DIR = ROOT / "posts"
 SITE_DIR = ROOT / "docs"  # GitHub Pages serves from /docs on the main branch
 STYLE_SRC = ROOT / "style.css"
 
-SITE_TITLE = ""  # unnamed, for now
 DOMAIN = "intervals.report"
 
-_NAME = re.compile(r"^(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})$")
+_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$")
 
 
 def parse_post(path: Path) -> dict | None:
-    m = _NAME.match(path.stem)
-    if not m:
+    if not _NAME.match(path.stem):
         return None
-    moment = datetime(*(int(g) for g in m.groups()))
-    lines = [l.strip() for l in path.read_text().splitlines() if l.strip()]
-    if not all(re.fullmatch(r"-?\d+", l) for l in lines):
-        return None
-    return {"moment": moment, "numbers": lines}
+    return {
+        "moment": datetime.strptime(path.stem, "%Y-%m-%dT%H-%M-%S"),
+        "body": path.read_text().rstrip("\n"),
+    }
 
 
 def post_article(post: dict) -> str:
-    stamp = post["moment"].strftime("%Y-%m-%d %H:%M")
-    numbers = " ".join(post["numbers"])
+    stamp = post["moment"].strftime("%Y-%m-%dT%H:%M:%SZ")
     return (
         '<article class="post">\n'
         f'<p class="stamp">{stamp}</p>\n'
-        f'<p class="numbers">{numbers}</p>\n'
+        f'<p class="numbers">{html.escape(post["body"])}</p>\n'
         "</article>"
     )
 
@@ -56,8 +54,7 @@ def build() -> None:
     SITE_DIR.mkdir()
 
     shutil.copy(STYLE_SRC, SITE_DIR / "style.css")
-    if DOMAIN:
-        (SITE_DIR / "CNAME").write_text(DOMAIN + "\n")
+    (SITE_DIR / "CNAME").write_text(DOMAIN + "\n")
 
     feed = "\n".join(post_article(p) for p in posts)
     (SITE_DIR / "index.html").write_text(
@@ -66,7 +63,7 @@ def build() -> None:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{SITE_TITLE}</title>
+<title></title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
