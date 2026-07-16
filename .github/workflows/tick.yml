@@ -2,8 +2,13 @@ name: tick
 
 on:
   schedule:
-    - cron: "7 * * * *"   # hourly; tick.py decides whether anything happens
+    - cron: "43 * * * *"   # hourly; tick.py decides live whether anything happens
   workflow_dispatch:
+    inputs:
+      force:
+        description: "post one burst right now (yes/no)"
+        required: false
+        default: "no"
 
 permissions:
   contents: write
@@ -15,10 +20,11 @@ concurrency:
 jobs:
   tick:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - name: tick
-        run: python3 tick.py
+        run: python3 tick.py ${{ github.event.inputs.force == 'yes' && '--force' || '' }}
       - name: build
         run: python3 build.py
       - name: commit
@@ -26,5 +32,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add posts docs
-          git diff --cached --quiet || git commit -m "$(date -u +%Y-%m-%dT%H:%M)"
-          git push
+          if ! git diff --cached --quiet; then
+            git commit -m "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            git pull --rebase
+            git push
+          fi
