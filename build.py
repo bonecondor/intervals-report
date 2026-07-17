@@ -70,6 +70,7 @@ def build() -> None:
 <main>
 {feed}
 </main>
+<script data-goatcounter="https://intervals.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </body>
 </html>
 """,
